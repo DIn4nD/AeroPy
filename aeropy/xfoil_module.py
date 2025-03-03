@@ -8,6 +8,7 @@ from __future__ import print_function
 #                       Import necessary modules
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 import subprocess as sp
+import pandas as pd
 import os  # To check for already existing files and delete them
 import numpy as np
 import math
@@ -17,28 +18,7 @@ import time
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #                           Core Functions
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-
-def call(airfoil, alfas=None, output='Cp', Reynolds=0, Mach=0,  # noqa C901
-         plots=False, NACA=True, GDES=False, iteration=10, flap=None,
-         PANE=False, NORM=True, dir=""):
-    """Call xfoil through Python.
-
-    The input variables are:
-
-    :param airfoil: if NACA is false, airfoil is the name of the plain
-           filewhere the airfoil geometry is stored (variable airfoil).
-           If NACA is True, airfoil is the naca series of the airfoil
-           (i.e.: naca2244). By default NACA is False.
-    
-    :param alfas: list/array/float/int of angles of attack.
-    
-    :param output: defines the kind of output desired from xfoil.  There
-           are four posssible choices (by default, Cp is chosen):
-    
-          - Cp: generates files with Pressure coefficients for
-                desired alfas.
+# ~~~~~~~~~~~~~~~~~~~~~~1d alfas.
           - Dump: generates file with Velocity along surface, Delta
                   star,theta and Cf vs s,x,y for several alfas.
           - Polar: generates file with CL, CD, CM, CDp, Top_Xtr,
@@ -169,24 +149,27 @@ def call(airfoil, alfas=None, output='Cp', Reynolds=0, Mach=0,  # noqa C901
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # By default the code considers the flow to be inviscid.
     Viscid = False
+    multipleAlfas = False
     if Reynolds != 0:
         Viscid = True
     # Is alpha given or not?(in case of Alfa_L_0, then alfas=False)
     if alfas is not None:
         # Single or multiple runs?
         if type(alfas) == list or type(alfas) == np.ndarray:
-            Multiple = True
+            multipleAlfas = True
         elif type(alfas) == int or type(alfas) == float or \
                 type(alfas) == np.float64 or type(alfas) == np.float32:
-            Multiple = False
+            multipleAlfas = False
     elif (output == "Alfa_L_0" or output == "Coordinates") and alfas == None:
-        Multiple = False
+        multipleAlfas = False
     elif output == "Alfa_L_0" and alfas != None:
         raise Exception("To find alpha_L_0, alfas must not be defined")
     elif output != "Alfa_L_0" and alfas == None:
         raise Exception("To find anything except alpha_L_0, you need to "
                         "define the values for alfa")
-
+    else:
+        raise Exception("Something went wrong with the input")
+    
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     #                           Start Xfoil
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -341,12 +324,12 @@ def call(airfoil, alfas=None, output='Cp', Reynolds=0, Mach=0,  # noqa C901
             issueCmd('')
 
         # For several angles of attack
-        if Multiple is True:
+        if multipleAlfas is True:
             for alfa in alfas:
                 submit(output, alfa)
 
         # For only one angle of attack
-        if Multiple is False:
+        if multipleAlfas is False:
             submit(output, alfas)
 
         # Exiting
@@ -994,11 +977,9 @@ def find_coefficients(airfoil, alpha, Reynolds=0, iteration=10,
     else:
         Exception("Wrong input data type for Reynolds")
 
-
     def singleIteration(airfoil, alpha, Reynolds, iteration,
                       NACA, delete, PANE,
                       GDES, dir):
-
         filename = file_name(airfoil, alpha, reynolds=Reynolds, output='Polar')
         # If file already exists, there is no need to recalculate it.
         if not os.path.isfile(dir + filename):
@@ -1013,6 +994,7 @@ def find_coefficients(airfoil, alpha, Reynolds=0, iteration=10,
             try:
                 coefficients[key] = Data[key][0]
             except:  #noqa E722
+                print('Error with key: ' + str(key))
                 coefficients[key] = None
         if delete:
             os.remove(dir + filename)
@@ -1020,12 +1002,16 @@ def find_coefficients(airfoil, alpha, Reynolds=0, iteration=10,
 
 
     if multipleReynolds:
+        coefficients = {}
         for currentReynolds in Reynolds:
-            singleIteration(airfoil=airfoil, alpha=alpha, Reynolds=currentReynolds,
+             currentCoefficients = singleIteration(airfoil=airfoil, alpha=alpha, Reynolds=currentReynolds,
                             iteration=iteration, NACA=NACA, delete=delete, PANE=PANE, GDES=GDES, dir=dir)
+             coefficients[currentReynolds] = currentCoefficients
     else:
-        singleIteration(airfoil=airfoil, alpha=alpha, Reynolds=Reynolds,
+        coefficients = singleIteration(airfoil=airfoil, alpha=alpha, Reynolds=Reynolds,
                             iteration=iteration, NACA=NACA, delete=delete, PANE=PANE, GDES=GDES, dir=dir)
+    
+    return coefficients
 
 
 def find_pressure_coefficients(airfoil, alpha, Reynolds=0, iteration=10,
@@ -1042,7 +1028,9 @@ def find_pressure_coefficients(airfoil, alpha, Reynolds=0, iteration=10,
         if not os.path.isfile(filename):
             call(airfoil, alpha, Reynolds=Reynolds, output='Cp',
                  iteration=iteration, NACA=NACA, PANE=PANE, GDES=GDES)
-    coefficients = {}
+
+
+
     # Data from file
     Data = output_reader(filename, output='Cp', delete=delete)
 
